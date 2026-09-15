@@ -33,14 +33,35 @@ const REMINDERS = [
   { value: 1440, label: 'قبل يوم' }
 ];
 const REMINDER_PRESETS = [0, 30, 60, 180, 1440];
-const APP_VERSION = 'v22';
+const APP_VERSION = 'v27';
 const CHANGELOG = {
+  v27: [
+    '📄 تقارير PDF أصبحت عمودية (Portrait) مضغوطة: صفوف أقصر وخط أصغر لاستيعاب طلاب أكثر في الصفحة وتوفير الورق'
+  ],
+  v26: [
+    '🛠️ إصلاح تداخل رقم الترتيب "م" مع اسم الطالب في ورقة الحضور المطبوعة: توسيع عمود الرقم وتصغير صندوق الرقم الأصفر ومنع الفيضان'
+  ],
+  v25: [
+    '🔢 عمود "م" (رقم الترتيب) في أول الجداول المصدّرة: تقرير الشهر، التقرير الشامل، وورقة الحضور',
+    '🖨️ ورقة الحضور الفارغة أصبحت عمودية (Portrait) وتستوعب 15 طالبًا في الصفحة',
+    '🎨 خلية الاسم في ورقة الحضور: الاسم بارز والهاتف أسفله مع تظليل أصفر خفيف'
+  ],
+  v24: [
+    '📅 تقرير الشهر: اختيار فترة (من يوم - إلى يوم) وإعادة حساب النسب والتقارير عليها',
+    '📅 التقرير الشامل: نفس فلتر الفترة الزمنية - الحصص خارج الفترة تُستبعد من كل الشهور',
+    '📊 Excel التقرير الشامل: خلية الشهر الواحدة فيها عدد الحضور (5/9) والنسبة تحتها'
+  ],
+  v23: [
+    '📞 حذف رمز الدولة (+20) من أرقام الهواتف في كل التقارير المصدّرة (PDF/Excel)',
+    '📊 تقرير شامل جديد: جدول نسب حضور الطلاب عبر كل الشهور - كل عمود شهر فيه عدد مرات الحضور والنسبة، مع تضمين الشهر الحالي حتى آخر حصة',
+    '📱 إصلاح القوائم المنسدلة: تثبيت القائمة في مكانها مع سكرول داخلي (فوق/تحت/يمين/يسار) بدون قطع الخيارات'
+  ],
   v22: [
-    '⚠️ مؤشر خطر الغياب: كل طالب بيظهر بجانبه مؤشر ملون (مثالي/متابعة/إنقاذ) حسب نسبة حضوره — قابل للتخصيص من الإعدادات',
+    '⚠️ مؤشر خطر الغياب: كل طالب بيظهر بجانبه مؤشر ملون (مثالي/متابعة/إنقاذ) حسب نسبة حضوره - قابل للتخصيص من الإعدادات',
     '📁 عند التصدير: اختيار مكان حفظ الملف بنفسك (Chrome/Edge)',
     '💡 إشعار تذكير بالتصدير: لو سجّلت حضور/غياب ولم تصدّر، يظهر تنبيه صغير',
     '🎯 تبسيط الأزرار: شريط أدوات نظيف بقوائم منسدلة بدل 14 زر مزدحم',
-    '📊 التقارير والمؤشرات تعتمد على الحصص اللي فاتت بس — مش كل الشهر (الحصص المستقبلية لا تحسب غياب)'
+    '📊 التقارير والمؤشرات تعتمد على الحصص اللي فاتت بس - مش كل الشهر (الحصص المستقبلية لا تحسب غياب)'
   ],
   v21: [
     '👨‍👩‍👦 دروس الاشتراك الشهري: رقم للطالب + رقم لولي الأمر + أرقام إضافية للطالبين',
@@ -115,6 +136,14 @@ function normalizePhone(p){
   if(d.startsWith('0'))  d = '20' + d.slice(1);
   if(!d.startsWith('20')) d = '20' + d;
   return '+' + d;
+}
+/* رقم محلي بدون رمز الدولة (للتقارير والطباعة) */
+function localPhone(p){
+  let d = digits(p);
+  if(!d) return '';
+  if(d.startsWith('00')) d = d.slice(2);
+  if(d.startsWith('20')) d = '0' + d.slice(2);
+  return d;
 }
 function waHref(phone, text){
   const num = digits(phone);
@@ -1214,20 +1243,19 @@ function sortByAttendance(){
 }
 
 function showAnalytics(students, sessions, records, title, statuses){
-  const rows = computeStats(students, sessions, records, statuses);
   const stList = statuses || state.settings.statuses;
+  const dated = sessions.filter(s => s.date);
+  const minDate = dated.length ? dated.reduce((a,b) => a.date < b.date ? a : b).date : '';
+  const maxDate = dated.length ? dated.reduce((a,b) => a.date > b.date ? a : b).date : '';
 
-  let body = '<div class="table-wrap"><table class="stats-table"><thead><tr><th>الطالب</th>';
-  stList.forEach(s => body += '<th>'+esc(s.label)+'</th>');
-  body += '<th>نسبة الحضور</th></tr></thead><tbody>';
-  rows.forEach(r => {
-    body += '<tr><td style="text-align:right;font-weight:700">'+esc(r.st.name)+'</td>';
-    stList.forEach(s => body += '<td>'+(r.counts[s.id]||0)+'</td>');
-    body += '<td><div class="bar" style="display:inline-block"><i style="width:'+r.pct+'%"></i></div> <b>'+r.pct+'%</b></td></tr>';
-  });
-  body += '</tbody></table></div>';
+  const filterHTML = dated.length
+    ? '<div class="range-filter"><span>📅 فترة التقرير:</span>'
+      + '<label>من <input type="date" id="rangeFrom" value="'+minDate+'"></label>'
+      + '<label>إلى <input type="date" id="rangeTo" value="'+maxDate+'"></label>'
+      + '</div>'
+    : '';
 
-  openModal('📊 تحليل ' + title, body);
+  openModal('📊 تحليل ' + title, filterHTML + '<div id="analyticsTableWrap"></div>');
   const actions = document.createElement('div');
   actions.className = 'modal-actions';
   actions.innerHTML =
@@ -1236,75 +1264,148 @@ function showAnalytics(students, sessions, records, title, statuses){
     + '<button class="btn" id="analyticsClose">إغلاق</button>';
   $('#modalBody').appendChild(actions);
 
-  $('#analyticsCsv').onclick = () => exportCSV(students, sessions, records, title, statuses);
-  $('#analyticsPdf').onclick = () => printReport(students, sessions, records, title, statuses);
+  let curSessions = sessions;
+  function applyRange(){
+    const from = $('#rangeFrom') ? $('#rangeFrom').value : '';
+    const to = $('#rangeTo') ? $('#rangeTo').value : '';
+    curSessions = sessions.filter(s => {
+      if(!s.date) return true;
+      if(from && s.date < from) return false;
+      if(to && s.date > to) return false;
+      return true;
+    });
+    const rows = computeStats(students, curSessions, records, statuses);
+    let body = '<div class="table-wrap"><table class="stats-table"><thead><tr><th>الطالب</th>';
+    stList.forEach(s => body += '<th>'+esc(s.label)+'</th>');
+    body += '<th>نسبة الحضور</th></tr></thead><tbody>';
+    rows.forEach(r => {
+      body += '<tr><td style="text-align:right;font-weight:700">'+esc(r.st.name)+'</td>';
+      stList.forEach(s => body += '<td>'+(r.counts[s.id]||0)+'</td>');
+      body += '<td><div class="bar" style="display:inline-block"><i style="width:'+r.pct+'%"></i></div> <b>'+r.pct+'%</b></td></tr>';
+    });
+    body += '</tbody></table></div>';
+    if(dated.length){
+      const shown = curSessions.filter(s => s.date).length;
+      body += '<p class="muted" style="font-size:12px;margin:6px 0 0">الحصص المحسوبة: ' + shown + ' من ' + sessions.length + '</p>';
+    }
+    $('#analyticsTableWrap').innerHTML = body;
+  }
+  applyRange();
+  if($('#rangeFrom')) $('#rangeFrom').onchange = applyRange;
+  if($('#rangeTo')) $('#rangeTo').onchange = applyRange;
+
+  $('#analyticsCsv').onclick = () => exportCSV(students, curSessions, records, title, statuses);
+  $('#analyticsPdf').onclick = () => printReport(students, curSessions, records, title, statuses);
   $('#analyticsClose').onclick = closeModal;
 }
 
 /* ---------- التقرير الشامل عبر الشهور المؤرشفة ---------- */
-function comprehensiveData(lesson){
+function comprehensiveData(lesson, fromDate, toDate){
+  const inRange = (s) => {
+    if(!s.date) return true;
+    if(fromDate && s.date < fromDate) return false;
+    if(toDate && s.date > toDate) return false;
+    return true;
+  };
   const months = state.archive
     .filter(a => a.lessonId === lesson.id)
-    .sort((a,b) => (a.year - b.year) || (a.monthNumber - b.monthNumber));
+    .sort((a,b) => (a.year - b.year) || (a.monthNumber - b.monthNumber))
+    .map(a => ({ label: 'شهر ' + a.monthNumber + '/' + a.year, monthNumber: a.monthNumber, year: a.year, sessions: (a.sessions||[]).filter(inRange), records: a.records||{}, students: archiveStudents(a) }))
+    .filter(m => pastSessions(m.sessions).length > 0);
+  /* الشهر الحالي (إلى لحظة توقف الدرس) */
+  if(lesson && pastSessions((lesson.sessions||[]).filter(inRange)).length){
+    months.push({ label: 'شهر ' + lesson.monthNumber + '/' + lesson.year, monthNumber: lesson.monthNumber, year: lesson.year, sessions: (lesson.sessions||[]).filter(inRange), records: lesson.records||{}, students: lesson.students||[] });
+  }
   if(!months.length) return null;
   const studentMap = {};
-  months.forEach(a => {
-    archiveStudents(a).forEach(st => {
+  months.forEach(m => {
+    m.students.forEach(st => {
       if(!studentMap[st.id]) studentMap[st.id] = { id: st.id, name: st.name, phone: st.phone };
       else { if(st.name) studentMap[st.id].name = st.name; if(st.phone) studentMap[st.id].phone = st.phone; }
     });
   });
   const rows = Object.keys(studentMap).map(id => {
     const st = studentMap[id];
-    const per = months.map(a => {
-      const recs = (a.records && a.records[st.id]) || {};
-      const ps = pastSessions(a.sessions||[]);
+    const per = months.map(m => {
+      const recs = (m.records && m.records[st.id]) || {};
+      const ps = pastSessions(m.sessions);
       let done = 0;
       ps.forEach(s => { if(recs[s.id] && recs[s.id].status === 'st_done') done++; });
-      return { done: done, total: ps.length };
+      const total = ps.length;
+      const pct = total ? Math.round(done / total * 100) : 0;
+      return { done: done, total: total, pct: pct };
     });
     const tot = per.reduce((acc,p) => ({ done: acc.done + p.done, total: acc.total + p.total }), { done:0, total:0 });
     const pct = tot.total ? Math.round(tot.done / tot.total * 100) : 0;
     return { st: st, per: per, tot: tot, pct: pct };
   });
   rows.sort((x,y) => y.pct - x.pct);
-  return { months: months, rows: rows };
+  return { months: months, rows: rows, range: { from: fromDate || '', to: toDate || '' } };
 }
 
 function showComprehensiveReport(lesson){
-  const data = comprehensiveData(lesson);
-  if(!data){ showToastMessage('لا توجد شهور مؤرشفة لهذا الدرس بعد.'); return; }
-  const { months, rows } = data;
-  let t = '<div class="table-wrap" style="max-height:52vh;overflow:auto"><table class="stats-table"><thead><tr><th class="sticky-col">الطالب</th>';
-  months.forEach(a => t += '<th>شهر ' + a.monthNumber + '/' + a.year + '</th>');
-  t += '<th>نسبة الحضور الكلية</th></tr></thead><tbody>';
-  rows.forEach(r => {
-    t += '<tr><td class="sticky-col" style="text-align:right;font-weight:700">' + esc(r.st.name) + '<br><span style="font-weight:400;color:#64748b">' + esc(r.st.phone) + '</span></td>';
-    r.per.forEach(p => t += '<td>' + p.done + '/' + p.total + '</td>');
-    t += '<td><b>' + r.pct + '%</b></td></tr>';
-  });
-  t += '</tbody></table></div>';
-  openModal('📊 تقرير شامل - ' + esc(lesson.name), t);
+  /* اجمع كل الحصص من الأرشيف + الشهر الحالي لتحديد حدود الفترة */
+  const allSessions = [];
+  state.archive.filter(a => a.lessonId === lesson.id).forEach(a => (a.sessions||[]).forEach(s => allSessions.push(s)));
+  (lesson.sessions||[]).forEach(s => allSessions.push(s));
+  const dated = allSessions.filter(s => s.date);
+  const minDate = dated.length ? dated.reduce((a,b) => a.date < b.date ? a : b).date : '';
+  const maxDate = dated.length ? dated.reduce((a,b) => a.date > b.date ? a : b).date : '';
+  const hasDates = dated.length > 0;
+
+  const filterHTML = hasDates
+    ? '<div class="range-filter"><span>📅 فترة التقرير:</span>'
+      + '<label>من <input type="date" id="compRangeFrom" value="'+minDate+'"></label>'
+      + '<label>إلى <input type="date" id="compRangeTo" value="'+maxDate+'"></label>'
+      + '</div>'
+    : '';
+  openModal('📊 تقرير شامل - ' + esc(lesson.name), filterHTML + '<div id="compTableWrap"></div>');
   const actions = document.createElement('div');
   actions.className = 'modal-actions';
   actions.innerHTML = '<button class="btn btn-outline" id="compCsv">⬇️ Excel (CSV)</button><button class="btn btn-outline" id="compPdf">🖨️ PDF (A4)</button><button class="btn" id="compClose">إغلاق</button>';
   $('#modalBody').appendChild(actions);
-  $('#compCsv').onclick = () => exportComprehensiveCSV(lesson, data);
-  $('#compPdf').onclick = () => printComprehensiveReport(lesson, data);
+
+  let curData = null;
+  function applyRange(){
+    const from = $('#compRangeFrom') ? $('#compRangeFrom').value : '';
+    const to = $('#compRangeTo') ? $('#compRangeTo').value : '';
+    curData = comprehensiveData(lesson, from, to);
+    if(!curData){
+      $('#compTableWrap').innerHTML = '<p class="muted">لا توجد شهور مؤرشفة ولا حصص سابقة في هذه الفترة.</p>';
+      return;
+    }
+    const { months, rows } = curData;
+    let t = '<div class="table-wrap" style="max-height:52vh;overflow:auto"><table class="stats-table comp-table"><thead><tr><th class="sticky-col">الطالب</th>';
+    months.forEach(a => t += '<th>' + a.monthNumber + '/' + a.year + '</th>');
+    t += '<th>النسبة الكلية</th></tr></thead><tbody>';
+    rows.forEach(r => {
+      t += '<tr><td class="sticky-col" style="text-align:right;font-weight:700">' + esc(r.st.name) + '<br><span style="font-weight:400;color:#64748b;direction:ltr">' + esc(localPhone(r.st.phone)) + '</span></td>';
+      r.per.forEach(p => t += '<td><span class="comp-count">' + p.done + '/' + p.total + '</span><br><b>' + p.pct + '%</b></td>');
+      t += '<td><b>' + r.pct + '%</b></td></tr>';
+    });
+    t += '</tbody></table></div>';
+    $('#compTableWrap').innerHTML = t;
+  }
+  applyRange();
+  if($('#compRangeFrom')) $('#compRangeFrom').onchange = applyRange;
+  if($('#compRangeTo')) $('#compRangeTo').onchange = applyRange;
+
+  $('#compCsv').onclick = () => { if(curData) exportComprehensiveCSV(lesson, curData); };
+  $('#compPdf').onclick = () => { if(curData) printComprehensiveReport(lesson, curData); };
   $('#compClose').onclick = closeModal;
 }
 
 function exportComprehensiveCSV(lesson, data){
   const { months, rows } = data;
   const lines = [];
-  const head = ['اسم الطالب (الرقم تحته)'];
-  months.forEach(a => head.push('حضور ' + a.monthNumber + '/' + a.year));
-  head.push('نسبة الحضور الكلية %');
+  const head = ['م', 'اسم الطالب (الرقم تحته)'];
+  months.forEach(a => head.push('شهر ' + a.monthNumber + '/' + a.year));
+  head.push('النسبة الكلية %');
   lines.push(head.join(','));
-  rows.forEach(r => {
-    const row = ['"' + String(r.st.name).replace(/"/g,'""') + '\n' + String(r.st.phone).replace(/"/g,'""') + '"'];
-    r.per.forEach(p => row.push(p.done + '/' + p.total));
-    row.push(r.pct);
+  rows.forEach((r, i) => {
+    const row = [i + 1, '"' + String(r.st.name).replace(/"/g,'""') + '\n' + String(localPhone(r.st.phone)).replace(/"/g,'""') + '"'];
+    r.per.forEach(p => row.push('"' + p.done + '/' + p.total + '\n' + p.pct + '%"'));
+    row.push('"' + r.pct + '%"');
     lines.push(row.join(','));
   });
   const safe = (lesson.name || 'درس').replace(/[^\w\u0600-\u06FF ]/g, '');
@@ -1313,20 +1414,20 @@ function exportComprehensiveCSV(lesson, data){
 
 function printComprehensiveReport(lesson, data){
   const { months, rows } = data;
-  $('#printPageRule').textContent = '@page{size:A4 landscape;margin:10mm}';
-  let html = '<div class="report" dir="rtl">';
+  $('#printPageRule').textContent = '@page{size:A4 portrait;margin:8mm}';
+  let html = '<div class="report compact" dir="rtl">';
   html += '<div class="r-title">' + esc(APP_NAME) + '</div>';
-  html += '<div class="r-sub">تقرير شامل - ' + esc(lesson.name) + ' - نسبة الحضور عبر ' + months.length + ' شهر مؤرشف</div>';
-  html += '<table class="r-table"><thead><tr><th class="r-name">الطالب</th>';
-  months.forEach(a => html += '<th>شهر ' + a.monthNumber + '/' + a.year + '</th>');
+  html += '<div class="r-sub">تقرير شامل - ' + esc(lesson.name) + ' - نسبة الحضور عبر ' + months.length + ' شهر' + (data.range && (data.range.from || data.range.to) ? ' (من ' + (data.range.from || 'البداية') + ' إلى ' + (data.range.to || 'الآن') + ')' : '') + '</div>';
+  html += '<table class="r-table"><thead><tr><th class="ord-col">م</th><th class="r-name">الطالب</th>';
+  months.forEach(a => html += '<th>' + a.monthNumber + '/' + a.year + '</th>');
   html += '<th>النسبة الكلية</th></tr></thead><tbody>';
-  rows.forEach(r => {
-    html += '<tr><td class="r-name">' + esc(r.st.name) + '<br><span style="font-weight:400;font-size:9px">' + esc(r.st.phone) + '</span></td>';
-    r.per.forEach(p => html += '<td>' + p.done + '/' + p.total + '</td>');
+  rows.forEach((r, i) => {
+    html += '<tr><td class="ord-col">' + (i+1) + '</td><td class="r-name">' + esc(r.st.name) + '<br><span style="font-weight:400;font-size:7px;direction:ltr">' + esc(localPhone(r.st.phone)) + '</span></td>';
+    r.per.forEach(p => html += '<td>' + p.done + '/' + p.total + '<br><b>' + p.pct + '%</b></td>');
     html += '<td><b>' + r.pct + '%</b></td></tr>';
   });
   html += '</tbody></table>';
-  html += '<div class="r-foot">عدد الشهور المؤرشفة: ' + months.length + ' · عدد الطلاب: ' + rows.length + '</div>';
+  html += '<div class="r-foot">عدد الشهور: ' + months.length + ' · عدد الطلاب: ' + rows.length + '</div>';
   html += '</div>';
   $('#printArea').innerHTML = html;
   window.print();
@@ -1339,7 +1440,7 @@ function exportCSV(students, sessions, records, title, statuses){
   const stList = statuses || state.settings.statuses;
   const rows = computeStats(students, sessions, records, statuses);
   const lines = [];
-  let head = ['اسم الطالب (الرقم تحته)'];
+  let head = ['م', 'اسم الطالب (الرقم تحته)'];
   sd.customFields.forEach(f => head.push(f.label));
   sessions.forEach(s => head.push(s.label + (s.dateLabel ? ' ('+s.dateLabel+')' : '') + (s.event ? ' ['+s.event+']' : '')));
   head.push(sd.notesLabel);
@@ -1347,8 +1448,8 @@ function exportCSV(students, sessions, records, title, statuses){
   head.push('نسبة الحضور %');
   lines.push(head.join(','));
 
-  rows.forEach(r => {
-    const row = ['"' + String(r.st.name).replace(/"/g,'""') + '\n' + String(r.st.phone).replace(/"/g,'""') + '"'];
+  rows.forEach((r, i) => {
+    const row = [i + 1, '"' + String(r.st.name).replace(/"/g,'""') + '\n' + String(localPhone(r.st.phone)).replace(/"/g,'""') + '"'];
     sd.customFields.forEach(f => row.push('"' + String((r.st.fields && r.st.fields[f.id]) || '').replace(/"/g,'""') + '"'));
     sessions.forEach(s => {
       const rec = (records[r.st.id] && records[r.st.id][s.id]) || {};
@@ -1370,8 +1471,7 @@ function exportCSV(students, sessions, records, title, statuses){
 /* ---------- طباعة A4 ---------- */
 function printReport(students, sessions, records, title, statuses){
   const rows = computeStats(students, sessions, records, statuses);
-  const orientation = sessions.length > 6 ? 'landscape' : 'portrait';
-  $('#printPageRule').textContent = '@page{size:A4 ' + orientation + ';margin:10mm}';
+  $('#printPageRule').textContent = '@page{size:A4 portrait;margin:8mm}';
   $('#printArea').innerHTML = buildReportHTML(students, sessions, records, rows, title, statuses);
   window.print();
   $('#printPageRule').textContent = '';
@@ -1403,28 +1503,26 @@ function printBlankSheet(lesson){
   const scheduleStr = scheduleLabel(lesson);
 
   let html = '<div class="report" dir="rtl">';
-  html += '<div class="r-title">' + esc(APP_NAME) + '</div>';
-  html += '<div class="r-sub">' + esc(lesson.name) + ' - ' + esc(monthTitle) + (yearLabel ? ' ' + esc(String(yearLabel)) : '') + '</div>';
+  html += '<div class="r-title">أبنام حضور وغياب عن ' + esc(lesson.name) + ' - ' + esc(monthTitle) + (yearLabel ? ' ' + esc(String(yearLabel)) : '') + '</div>';
   if(scheduleStr) html += '<div style="text-align:center;font-size:10px;color:#475569;margin-bottom:6px">' + esc(scheduleStr) + '</div>';
 
-  /* جدول الحضور الفارغ - رفيع */
+  /* جدول الحضور الفارغ — عمودي، رفيع، 15 طالب في الصفحة */
   html += '<table class="r-table blank-sheet"><thead><tr>';
-  html += '<th style="width:4%">#</th>';
-  html += '<th class="r-name">' + esc(sd.studentLabel) + '</th>';
+  html += '<th class="ord-col">م</th>';
+  html += '<th class="r-name">الاسم</th>';
   sessions.forEach(s => {
     const dayLabel = s.dateLabel || '';
-    html += '<th>' + esc(s.label);
-    if(dayLabel) html += '<br><span style="font-weight:400;font-size:7px">' + esc(dayLabel) + '</span>';
+    html += '<th>' + (dayLabel ? esc(dayLabel) : esc(s.label));
     if(s.event) html += '<br><span style="color:#b45309;font-size:7px">📝 ' + esc(s.event) + '</span>';
     html += '</th>';
   });
-  html += '<th>' + esc(sd.notesLabel) + '</th>';
+  html += '<th>ملاحظات</th>';
   html += '</tr></thead><tbody>';
 
   students.forEach((st, i) => {
     html += '<tr>';
-    html += '<td>' + (i + 1) + '</td>';
-    html += '<td class="r-name">' + esc(st.name) + '<br><span style="font-weight:400;font-size:8px;color:#64748b">' + esc(st.phone || '') + '</span></td>';
+    html += '<td class="ord-col"><span class="ord-num">' + (i + 1) + '</span></td>';
+    html += '<td class="r-name"><span class="st-name">' + esc(st.name) + '</span><br><span class="st-phone">' + esc(localPhone(st.phone || '')) + '</span></td>';
     sessions.forEach(() => {
       html += '<td class="blank-cell"></td>';
     });
@@ -1436,8 +1534,8 @@ function printBlankSheet(lesson){
   html += '<div class="r-foot">عدد الطلاب: ' + students.length + ' · عدد الحصص: ' + sessions.length + '</div>';
   html += '</div>';
 
-  /* دائمًا أفقي (landscape) عشان صفحات أقل */
-  $('#printPageRule').textContent = '@page{size:A4 landscape;margin:6mm}';
+  /* عمودي (portrait) — 15 طالب في الصفحة */
+  $('#printPageRule').textContent = '@page{size:A4 portrait;margin:8mm}';
   $('#printArea').innerHTML = html;
   window.print();
   $('#printPageRule').textContent = '';
@@ -1458,7 +1556,7 @@ function exportBlankSheetExcel(lesson){
   lines.push('');
 
   /* رأس الجدول */
-  let head = ['#', 'اسم الطالب'];
+  let head = ['م', 'اسم الطالب'];
   sessions.forEach(s => {
     let col = s.label;
     if(s.dateLabel) col += ' (' + s.dateLabel + ')';
@@ -1470,7 +1568,7 @@ function exportBlankSheetExcel(lesson){
 
   /* صفوف الطلاب - الحضور فارغ */
   students.forEach((st, i) => {
-    const row = [i + 1, '"' + String(st.name).replace(/"/g,'""') + '\n' + String(st.phone || '').replace(/"/g,'""') + '"'];
+    const row = [i + 1, '"' + String(st.name).replace(/"/g,'""') + '\n' + String(localPhone(st.phone || '')).replace(/"/g,'""') + '"'];
     sessions.forEach(() => row.push(''));
     row.push('');
     lines.push(row.join(','));
@@ -1483,21 +1581,21 @@ function exportBlankSheetExcel(lesson){
 function buildReportHTML(students, sessions, records, rows, title, statuses){
   const sd = state.settings;
   const stList = statuses || state.settings.statuses;
-  let html = '<div class="report" dir="rtl">';
+  let html = '<div class="report compact" dir="rtl">';
   html += '<div class="r-title">' + esc(APP_NAME) + '</div>';
   html += '<div class="r-sub">' + esc(title) + '</div>';
 
-  html += '<table class="r-table"><thead><tr><th class="r-name">'+esc(sd.studentLabel)+'</th>';
+  html += '<table class="r-table"><thead><tr><th class="ord-col">م</th><th class="r-name">'+esc(sd.studentLabel)+'</th>';
   sd.customFields.forEach(f => html += '<th>'+esc(f.label)+'</th>');
-  sessions.forEach(s => html += '<th>'+esc(s.label)+'<br><span>'+esc(s.dateLabel||'')+'</span>' + (s.event ? '<br><span style="color:#b45309;font-size:9px">📝 '+esc(s.event)+'</span>' : '') + '</th>');
+  sessions.forEach(s => html += '<th>'+esc(s.label)+'<br><span>'+esc(s.dateLabel||'')+'</span>' + (s.event ? '<br><span style="color:#b45309;font-size:7px">📝 '+esc(s.event)+'</span>' : '') + '</th>');
   html += '<th>'+esc(sd.notesLabel)+'</th></tr></thead><tbody>';
-  students.forEach(st => {
-    html += '<tr><td class="r-name">'+esc(st.name)+'<br><span style="font-weight:400;font-size:9px;color:#64748b">'+esc(st.phone)+'</span></td>';
+  students.forEach((st, i) => {
+    html += '<tr><td class="ord-col">'+(i+1)+'</td><td class="r-name">'+esc(st.name)+'<br><span style="font-weight:400;font-size:7px;color:#64748b;direction:ltr">'+esc(localPhone(st.phone))+'</span></td>';
     sd.customFields.forEach(f => html += '<td>'+esc((st.fields && st.fields[f.id]) || '')+'</td>');
     sessions.forEach(s => {
       const rec = (records[st.id] && records[st.id][s.id]) || {};
       const lbl = rec.status ? (stList.find(x=>x.id===rec.status)||{}).label || '' : '';
-      html += '<td>'+esc(lbl||'-') + (rec.note ? '<br><span style="font-size:8px;color:#b45309">'+esc(rec.note)+'</span>' : '') + '</td>';
+      html += '<td>'+esc(lbl||'-') + (rec.note ? '<br><span style="font-size:7px;color:#b45309">'+esc(rec.note)+'</span>' : '') + '</td>';
     });
     const note = (records[st.id] && records[st.id]['__note__']) || '';
     html += '<td>'+esc(note)+'</td></tr>';
@@ -1505,11 +1603,11 @@ function buildReportHTML(students, sessions, records, rows, title, statuses){
   html += '</tbody></table>';
 
   html += '<div class="r-section">تحليل الحضور</div>';
-  html += '<table class="r-table"><thead><tr><th class="r-name">'+esc(sd.studentLabel)+'</th>';
+  html += '<table class="r-table"><thead><tr><th class="ord-col">م</th><th class="r-name">'+esc(sd.studentLabel)+'</th>';
   stList.forEach(s => html += '<th>'+esc(s.label)+'</th>');
   html += '<th>نسبة الحضور</th></tr></thead><tbody>';
-  rows.forEach(r => {
-    html += '<tr><td class="r-name">'+esc(r.st.name)+'</td>';
+  rows.forEach((r, i) => {
+    html += '<tr><td class="ord-col">'+(i+1)+'</td><td class="r-name">'+esc(r.st.name)+'</td>';
     stList.forEach(s => html += '<td>'+(r.counts[s.id]||0)+'</td>');
     html += '<td><b>'+r.pct+'%</b></td></tr>';
   });
@@ -2650,16 +2748,30 @@ function bindEvents(){
     const btn = document.getElementById(btnId);
     if(!menu || !btn) return;
     const wasOpen = !menu.hidden;
-    /* أغلق كل القوائم */
-    $$('.dropdown-menu').forEach(m => m.hidden = true);
-    if(!wasOpen){
-      /* حساب موقع الزر لوضع القائمة تحته */
-      const rect = btn.getBoundingClientRect();
+    /* أغلق كل القوائم وأعد ضبط الأنماط */
+    $$('.dropdown-menu').forEach(m => { m.hidden = true; m.style.maxHeight = ''; m.style.bottom = ''; m.style.top = ''; });
+    if(wasOpen) return;
+    const rect = btn.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
+    const spaceBelow = vh - rect.bottom - 14;
+    const spaceAbove = rect.top - 14;
+    /* محاذاة أفقية: من اليمين مع حماية من الخروج من الشاشة */
+    const rightPx = Math.max(8, Math.min(vw - rect.right, vw - 208));
+    menu.style.right = rightPx + 'px';
+    menu.style.left = 'auto';
+    if(spaceBelow >= 180 || spaceBelow >= spaceAbove){
+      /* افتح لتحت بارتفاع يناسب المساحة */
       menu.style.top = (rect.bottom + 4) + 'px';
-      menu.style.right = (window.innerWidth - rect.right) + 'px';
-      menu.style.left = 'auto';
-      menu.hidden = false;
+      menu.style.bottom = 'auto';
+      menu.style.maxHeight = Math.max(140, spaceBelow) + 'px';
+    } else {
+      /* افتح لفوق */
+      menu.style.bottom = (vh - rect.top + 4) + 'px';
+      menu.style.top = 'auto';
+      menu.style.maxHeight = Math.max(140, spaceAbove) + 'px';
     }
+    menu.hidden = false;
   }
   $('#reportsMenuBtn').onclick = () => toggleDropdown('reportsMenu', 'reportsMenuBtn');
   $('#manageMenuBtn').onclick = () => toggleDropdown('manageMenu', 'manageMenuBtn');
